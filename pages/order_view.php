@@ -40,12 +40,13 @@ $items = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Latest payment (optional)
 $payStmt = $pdo->prepare("
-    SELECT method, amount, created_at
+    SELECT method, amount
     FROM payments
     WHERE order_id = ?
     ORDER BY id DESC
     LIMIT 1
 ");
+
 $payStmt->execute([$orderId]);
 $payment = $payStmt->fetch(PDO::FETCH_ASSOC);
 

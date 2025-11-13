@@ -21,6 +21,7 @@ if (!isset($page_title)) { $page_title = 'POS System'; }
             <a href="#">Accounting</a>
             <a href="#">Purchase</a>
             <a href="/restaurant_pos/pages/kitchen.php">Kitchen</a>
+            <a href="/restaurant_pos/pages/inventory.php">Inventory</a>
             <a href="/restaurant_pos/pages/customers.php">Customers</a>
             <a href="#">Payroll</a>
             <a href="/restaurant_pos/pages/reports.php">Reports</a>

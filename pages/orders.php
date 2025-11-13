@@ -85,11 +85,11 @@ include __DIR__ . '/../ layouts/header.php';
                 <td><?= ucfirst($o['status']) ?></td>
                 <td><?= htmlspecialchars($o['created_at']) ?></td>
                 <td class="orders-actions">
-                    <a href="order_view.php?id=<?= (int)$o['id'] ?>" class="btn-chip small">View / Bill</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=in_progress" class="btn-chip small">In Progress</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=ready"       class="btn-chip small">Ready</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=served"      class="btn-chip small">Served</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=paid"        class="btn-chip small">Paid</a>
+                    <a href="order_view.php?id=<?= (int)$o['id'] ?>" class="btn-chip small act-view">View / Bill</a>
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=in_progress" class="btn-chip small act-progress">In Progress</a>
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=ready"       class="btn-chip small act-ready">Ready</a>
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=served"      class="btn-chip small act-served">Served</a>
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=paid"        class="btn-chip small act-paid">Paid</a>
                 </td>
             </tr>
         <?php endforeach; ?>

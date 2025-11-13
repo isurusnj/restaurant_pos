@@ -20,14 +20,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'categor
     }
 }
 
-// --- Delete Category ---
+// --- Delete Category (SAFE: prevent delete if items exist) ---
 if (isset($_GET['delete_cat'])) {
-    $id = (int)$_GET['delete_cat'];
-    if ($id > 0) {
-        $stmt = $pdo->prepare("DELETE FROM categories WHERE id = ?");
-        $stmt->execute([$id]);
-        header('Location: menu.php');
-        exit;
+    $catId = (int)$_GET['delete_cat'];
+    if ($catId > 0) {
+        // Count items in this category
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM menu_items WHERE category_id = ?");
+        $stmt->execute([$catId]);
+        $count = (int)$stmt->fetchColumn();
+
+        if ($count > 0) {
+            $errors[] = "Cannot delete category: $count menu item(s) still linked to it. Move or delete those items first.";
+        } else {
+            $del = $pdo->prepare("DELETE FROM categories WHERE id = ?");
+            $del->execute([$catId]);
+            $success = "Category deleted.";
+        }
     }
 }
 
@@ -40,14 +48,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'item') 
     $active      = isset($_POST['is_active']) ? 1 : 0;
     $image       = trim($_POST['image'] ?? '');
 
+    // optional inventory fields
+    $sku   = trim($_POST['sku'] ?? '');
+    $stock = ($_POST['stock_qty'] === '' ? null : (int)$_POST['stock_qty']);
+    $low   = (int)($_POST['low_stock_threshold'] ?? 0);
+
     if ($name === '' || $category_id <= 0 || $price <= 0) {
         $errors[] = 'Item name, category and price are required.';
     } else {
+        // Single INSERT — remove the duplicate you had before
         $stmt = $pdo->prepare("
-            INSERT INTO menu_items (category_id, name, description, price, image, is_active)
-            VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO menu_items (category_id, name, sku, description, price, image, stock_qty, low_stock_threshold, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$category_id, $name, $desc, $price, $image, $active]);
+        $stmt->execute([
+            $category_id, $name,
+            ($sku !== '' ? $sku : null),
+            $desc, $price, ($image !== '' ? $image : null),
+            $stock, $low, $active
+        ]);
         $success = 'Menu item added.';
     }
 }
@@ -58,19 +77,24 @@ if (isset($_GET['delete_item'])) {
     if ($id > 0) {
         $stmt = $pdo->prepare("DELETE FROM menu_items WHERE id = ?");
         $stmt->execute([$id]);
-        header('Location: menu.php');
-        exit;
+        $success = "Menu item deleted.";
     }
 }
 
-// load data
-$categories = $pdo->query("SELECT * FROM categories ORDER BY sort_order, name")->fetchAll(PDO::FETCH_ASSOC);
+// --- Load categories with item counts ---
+$categories = $pdo->query("
+    SELECT c.*,
+           (SELECT COUNT(*) FROM menu_items m WHERE m.category_id = c.id) AS item_count
+    FROM categories c
+    ORDER BY c.sort_order, c.name
+")->fetchAll(PDO::FETCH_ASSOC);
 
+// --- Load items (LEFT JOIN so page doesn't break if category missing) ---
 $items = $pdo->query("
     SELECT m.*, c.name AS category_name
     FROM menu_items m
-    JOIN categories c ON m.category_id = c.id
-    ORDER BY c.sort_order, c.name, m.name
+    LEFT JOIN categories c ON m.category_id = c.id
+    ORDER BY c.sort_order IS NULL, c.sort_order, c.name, m.name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 include __DIR__ . '/../ layouts/header.php';
@@ -84,9 +108,7 @@ include __DIR__ . '/../ layouts/header.php';
 
 <?php if ($errors): ?>
     <div style="margin-bottom:10px; padding:6px 10px; border-radius:8px; background:#ffe0e0; font-size:13px;">
-        <?php foreach ($errors as $e): ?>
-            <div><?= htmlspecialchars($e) ?></div>
-        <?php endforeach; ?>
+        <?php foreach ($errors as $e): ?><div><?= htmlspecialchars($e) ?></div><?php endforeach; ?>
     </div>
 <?php endif; ?>
 
@@ -114,25 +136,28 @@ include __DIR__ . '/../ layouts/header.php';
                 <th>ID</th>
                 <th>Name</th>
                 <th>Sort</th>
+                <th>Items</th>
                 <th>Action</th>
             </tr>
             </thead>
             <tbody>
             <?php if (!$categories): ?>
-                <tr><td colspan="4" style="text-align:center;">No categories.</td></tr>
+                <tr><td colspan="5" style="text-align:center;">No categories.</td></tr>
+            <?php else: ?>
+                <?php foreach ($categories as $c): ?>
+                    <tr>
+                        <td><?= (int)$c['id'] ?></td>
+                        <td><?= htmlspecialchars($c['name']) ?></td>
+                        <td><?= (int)$c['sort_order'] ?></td>
+                        <td><?= (int)$c['item_count'] ?></td>
+                        <td>
+                            <a href="menu.php?delete_cat=<?= (int)$c['id'] ?>"
+                               onclick="return confirm('Delete this category?');"
+                               class="btn-chip small">Delete</a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
             <?php endif; ?>
-            <?php foreach ($categories as $c): ?>
-                <tr>
-                    <td><?= $c['id'] ?></td>
-                    <td><?= htmlspecialchars($c['name']) ?></td>
-                    <td><?= $c['sort_order'] ?></td>
-                    <td>
-                        <a href="menu.php?delete_cat=<?= $c['id'] ?>"
-                           onclick="return confirm('Delete this category?');"
-                           class="btn-chip small">Delete</a>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
             </tbody>
         </table>
     </div>
@@ -154,7 +179,7 @@ include __DIR__ . '/../ layouts/header.php';
                 <select name="category_id" required>
                     <option value="">Select category</option>
                     <?php foreach ($categories as $c): ?>
-                        <option value="<?= $c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
+                        <option value="<?= (int)$c['id'] ?>"><?= htmlspecialchars($c['name']) ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
@@ -162,6 +187,21 @@ include __DIR__ . '/../ layouts/header.php';
             <div class="login-field">
                 <label>Price</label>
                 <input type="number" step="0.01" name="price" required>
+            </div>
+
+            <div class="login-field">
+                <label>SKU (optional)</label>
+                <input type="text" name="sku">
+            </div>
+
+            <div class="login-field">
+                <label>Stock Qty (leave empty = not tracked)</label>
+                <input type="number" name="stock_qty" placeholder="">
+            </div>
+
+            <div class="login-field">
+                <label>Low-stock threshold</label>
+                <input type="number" name="low_stock_threshold" value="0">
             </div>
 
             <div class="login-field">
@@ -188,6 +228,9 @@ include __DIR__ . '/../ layouts/header.php';
                 <th>ID</th>
                 <th>Item</th>
                 <th>Category</th>
+                <th>SKU</th>
+                <th>Stock</th>
+                <th>Low</th>
                 <th>Price</th>
                 <th>Active</th>
                 <th>Action</th>
@@ -195,22 +238,26 @@ include __DIR__ . '/../ layouts/header.php';
             </thead>
             <tbody>
             <?php if (!$items): ?>
-                <tr><td colspan="6" style="text-align:center;">No items.</td></tr>
+                <tr><td colspan="9" style="text-align:center;">No items.</td></tr>
+            <?php else: ?>
+                <?php foreach ($items as $m): ?>
+                    <tr>
+                        <td><?= (int)$m['id'] ?></td>
+                        <td><?= htmlspecialchars($m['name']) ?></td>
+                        <td><?= $m['category_name'] ? htmlspecialchars($m['category_name']) : '-' ?></td>
+                        <td><?= htmlspecialchars($m['sku'] ?? '') ?></td>
+                        <td><?= is_null($m['stock_qty']) ? '-' : (int)$m['stock_qty'] ?></td>
+                        <td><?= (int)($m['low_stock_threshold'] ?? 0) ?></td>
+                        <td>$<?= number_format((float)$m['price'], 2) ?></td>
+                        <td><?= $m['is_active'] ? 'Yes' : 'No' ?></td>
+                        <td>
+                            <a href="menu.php?delete_item=<?= (int)$m['id'] ?>"
+                               onclick="return confirm('Delete this item?');"
+                               class="btn-chip small">Delete</a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
             <?php endif; ?>
-            <?php foreach ($items as $m): ?>
-                <tr>
-                    <td><?= $m['id'] ?></td>
-                    <td><?= htmlspecialchars($m['name']) ?></td>
-                    <td><?= htmlspecialchars($m['category_name']) ?></td>
-                    <td>$<?= number_format($m['price'], 2) ?></td>
-                    <td><?= $m['is_active'] ? 'Yes' : 'No' ?></td>
-                    <td>
-                        <a href="menu.php?delete_item=<?= $m['id'] ?>"
-                           onclick="return confirm('Delete this item?');"
-                           class="btn-chip small">Delete</a>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
             </tbody>
         </table>
     </div>
