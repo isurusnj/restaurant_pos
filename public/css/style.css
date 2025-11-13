@@ -543,3 +543,9 @@ body { background: #f3f4f8; }
 .kds-pending  { background:#fef3c7; }
 .kds-progress { background:#dbeafe; }
 .kds-ready    { background:#d1fae5; }
+.bill-actions .small-input {
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 13px;
+}

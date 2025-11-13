@@ -49,6 +49,14 @@ $payStmt = $pdo->prepare("
 $payStmt->execute([$orderId]);
 $payment = $payStmt->fetch(PDO::FETCH_ASSOC);
 
+// Sum of all payments (could be multiple)
+$sumStmt = $pdo->prepare("SELECT IFNULL(SUM(amount),0) AS paid FROM payments WHERE order_id = ?");
+$sumStmt->execute([$orderId]);
+$totals = $sumStmt->fetch(PDO::FETCH_ASSOC);
+$totalPaid = (float)($totals['paid'] ?? 0);
+$balance   = max(0, (float)$order['total_amount'] - $totalPaid);
+
+
 include __DIR__ . '/../ layouts/header.php';
 ?>
 
@@ -122,6 +130,15 @@ include __DIR__ . '/../ layouts/header.php';
                 <span>Grand Total</span>
                 <span><?= number_format((float)$order['total_amount'], 2) ?></span>
             </div>
+            <div class="row">
+                <span>Paid</span>
+                <span><?= number_format($totalPaid, 2) ?></span>
+            </div>
+            <div class="row">
+                <span>Balance</span>
+                <span><?= number_format($balance, 2) ?></span>
+            </div>
+
 
             <?php if ($payment): ?>
                 <div class="row">
@@ -130,6 +147,61 @@ include __DIR__ . '/../ layouts/header.php';
                 </div>
             <?php endif; ?>
         </div>
+        <?php if ($balance > 0): ?>
+            <div class="card" style="margin-top:10px; padding:10px; border-radius:12px; background:#f8fafc;">
+                <h4 style="margin:0 0 8px;">Record Payment</h4>
+                <form action="pay.php" method="post" id="pay-form">
+                    <input type="hidden" name="order_id" value="<?= (int)$orderId ?>">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; align-items:end;">
+                        <div class="login-field">
+                            <label>Method</label>
+                            <select name="method" required>
+                                <option value="cash">Cash</option>
+                                <option value="card">Card</option>
+                                <option value="wallet">Wallet</option>
+                                <option value="bank">Bank</option>
+                            </select>
+                        </div>
+                        <div class="login-field">
+                            <label>Amount</label>
+                            <input type="number" step="0.01" name="amount" id="pay-amount"
+                                   value="<?= htmlspecialchars(number_format($balance,2,'.','')) ?>" required>
+                        </div>
+                        <div class="login-field">
+                            <label>Cash Given (for change)</label>
+                            <input type="number" step="0.01" name="cash_given" id="cash-given" placeholder="optional">
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-top:6px; font-size:13px;">
+                        <div>Balance: <strong>$<span id="balance-live"><?= number_format($balance,2) ?></span></strong></div>
+                        <div>Change: <strong>$<span id="change-live">0.00</span></strong></div>
+                    </div>
+                    <button class="btn-primary" style="margin-top:8px;">Save Payment</button>
+                </form>
+            </div>
+
+            <script>
+                const amountEl = document.getElementById('pay-amount');
+                const cashEl   = document.getElementById('cash-given');
+                const balEl    = document.getElementById('balance-live');
+                const changeEl = document.getElementById('change-live');
+                const origBal  = <?= json_encode($balance) ?>;
+
+                function recalc() {
+                    const amt   = parseFloat(amountEl.value || '0');
+                    const cash  = parseFloat(cashEl.value   || '0');
+                    const newBal = Math.max(0, (origBal - (isNaN(amt)?0:amt)));
+                    const change = Math.max(0, (isNaN(cash)?0:cash) - (isNaN(amt)?0:amt));
+                    balEl.textContent   = newBal.toFixed(2);
+                    changeEl.textContent= change.toFixed(2);
+                }
+                amountEl.addEventListener('input', recalc);
+                cashEl.addEventListener('input', recalc);
+                recalc();
+            </script>
+        <?php endif; ?>
+
+
 
         <div class="bill-footer">
             <p>Thank you for dining with us!</p>
@@ -141,6 +213,26 @@ include __DIR__ . '/../ layouts/header.php';
         <button onclick="window.print()" class="btn-primary">Print Bill</button>
         <a href="orders.php" class="btn-chip">Back to Orders</a>
     </div>
+    <?php
+    // Prefer customer's email if you have it
+    $custEmailStmt = $pdo->prepare("SELECT email FROM customers WHERE id = ?");
+    $custEmailStmt->execute([$order['customer_id']]);
+    $custRow = $custEmailStmt->fetch(PDO::FETCH_ASSOC);
+    $defaultEmail = $custRow['email'] ?? '';
+    ?>
+    <div class="bill-actions" style="gap:8px; flex-wrap:wrap;">
+        <button onclick="window.print()" class="btn-primary">Print Bill</button>
+        <a href="orders.php" class="btn-chip">Back to Orders</a>
+
+        <form action="send_receipt.php" method="post" style="display:flex; gap:6px; align-items:center;">
+            <input type="hidden" name="order_id" value="<?= (int)$orderId ?>">
+            <input type="email" name="to" placeholder="customer@email"
+                   value="<?= htmlspecialchars($defaultEmail) ?>"
+                   class="small-input" style="width:220px;">
+            <button class="btn-chip">Email Receipt</button>
+        </form>
+    </div>
+
 </div>
 
 <?php include __DIR__ . '/../ layouts/footer.php'; ?>
