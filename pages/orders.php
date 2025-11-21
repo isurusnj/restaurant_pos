@@ -4,7 +4,7 @@ $page_title = 'Orders';
 require_once __DIR__ . '/../config/db.php';
 
 // --- UPDATE STATUS (from buttons) ---
-$allowedStatuses = ['pending','in_progress','ready','served','paid','cancelled'];
+$allowedStatuses = ['pending', 'in_progress', 'ready', 'served', 'paid', 'cancelled'];
 
 if (isset($_GET['id'], $_GET['status'])) {
     $id = (int)$_GET['id'];
@@ -40,19 +40,19 @@ $stmt = $pdo->prepare($baseSql);
 $stmt->execute($params);
 $orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-include __DIR__ . '/../ layouts/header.php';
+include __DIR__ . '/../layouts/header.php';
 ?>
 
 <div class="orders-header-row">
     <h2>Orders</h2>
     <div class="orders-filter">
-        <a href="orders.php?filter=all"          class="chip <?= $filterStatus==='all' ? 'chip-active' : '' ?>">All</a>
-        <a href="orders.php?filter=pending"      class="chip <?= $filterStatus==='pending' ? 'chip-active' : '' ?>">Pending</a>
-        <a href="orders.php?filter=in_progress"  class="chip <?= $filterStatus==='in_progress' ? 'chip-active' : '' ?>">In Progress</a>
-        <a href="orders.php?filter=ready"        class="chip <?= $filterStatus==='ready' ? 'chip-active' : '' ?>">Ready</a>
-        <a href="orders.php?filter=served"       class="chip <?= $filterStatus==='served' ? 'chip-active' : '' ?>">Served</a>
-        <a href="orders.php?filter=paid"         class="chip <?= $filterStatus==='paid' ? 'chip-active' : '' ?>">Paid</a>
-        <a href="orders.php?filter=cancelled"    class="chip <?= $filterStatus==='cancelled' ? 'chip-active' : '' ?>">Cancelled</a>
+        <a href="orders.php?filter=all" class="chip <?= $filterStatus === 'all' ? 'chip-active' : '' ?>">All</a>
+        <a href="orders.php?filter=pending" class="chip <?= $filterStatus === 'pending' ? 'chip-active' : '' ?>">Pending</a>
+        <a href="orders.php?filter=in_progress" class="chip <?= $filterStatus === 'in_progress' ? 'chip-active' : '' ?>">In Progress</a>
+        <a href="orders.php?filter=ready" class="chip <?= $filterStatus === 'ready' ? 'chip-active' : '' ?>">Ready</a>
+        <a href="orders.php?filter=served" class="chip <?= $filterStatus === 'served' ? 'chip-active' : '' ?>">Served</a>
+        <a href="orders.php?filter=paid" class="chip <?= $filterStatus === 'paid' ? 'chip-active' : '' ?>">Paid</a>
+        <a href="orders.php?filter=cancelled" class="chip <?= $filterStatus === 'cancelled' ? 'chip-active' : '' ?>">Cancelled</a>
     </div>
 </div>
 
@@ -72,24 +72,79 @@ include __DIR__ . '/../ layouts/header.php';
     </thead>
     <tbody>
     <?php if (!$orders): ?>
-        <tr><td colspan="9" style="text-align:center;">No orders yet.</td></tr>
+        <tr>
+            <td colspan="9" style="text-align:center;">No orders yet.</td>
+        </tr>
     <?php else: ?>
         <?php foreach ($orders as $o): ?>
+
+            <?php
+            // 🔴 NORMALIZE STATUS HERE (important)
+            $currentStatus = strtolower(trim($o['status'] ?? ''));
+
+            // support small variations like "in progress", "In Progress"
+            $isPending     = ($currentStatus === 'pending');
+            $isInProgress  = ($currentStatus === 'in_progress' || $currentStatus === 'in progress');
+            $isReady       = ($currentStatus === 'ready');
+            $isServed      = ($currentStatus === 'served');
+            $isPaid        = ($currentStatus === 'paid');
+
+            // inline styles for green & red buttons
+            $greenStyle = 'background:#10b981;color:#ffffff;font-weight:600;border-radius:999px;padding:4px 10px;display:inline-block;';
+            $redStyle   = 'background:#b91c1c;color:#ffffff;font-weight:600;border-radius:999px;padding:4px 10px;display:inline-block;';
+            ?>
+
             <tr>
                 <td><?= (int)$o['id'] ?></td>
                 <td><?= htmlspecialchars($o['order_number']) ?></td>
                 <td><?= $o['customer_name'] ? htmlspecialchars($o['customer_name']) : 'Walk-in' ?></td>
-                <td><?= ucfirst(str_replace('_',' ', $o['order_type'])) ?></td>
+                <td><?= ucfirst(str_replace('_', ' ', $o['order_type'])) ?></td>
                 <td><?= $o['table_name'] ? htmlspecialchars($o['table_name']) : '-' ?></td>
-                <td>$<?= number_format((float)$o['total_amount'], 2) ?></td>
-                <td><?= ucfirst($o['status']) ?></td>
+                <td>LKR <?= number_format((float)$o['total_amount'], 2) ?></td>
+                <td><?= ucfirst($currentStatus) ?></td>
                 <td><?= htmlspecialchars($o['created_at']) ?></td>
                 <td class="orders-actions">
-                    <a href="order_view.php?id=<?= (int)$o['id'] ?>" class="btn-chip small act-view">View / Bill</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=in_progress" class="btn-chip small act-progress">In Progress</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=ready"       class="btn-chip small act-ready">Ready</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=served"      class="btn-chip small act-served">Served</a>
-                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=paid"        class="btn-chip small act-paid">Paid</a>
+                    <!-- View / Bill & KOT -->
+                    <a href="order_view.php?id=<?= (int)$o['id'] ?>"
+                       class="btn-chip small"
+                       style="background:#7f5dff;color:#ffffff;border-radius:999px;padding:4px 10px;display:inline-block;">
+                        View / Bill
+                    </a>
+
+                    <a href="order_kot.php?id=<?= (int)$o['id'] ?>"
+                       class="btn-chip small"
+                       style="background:#7f5dff;color:#ffffff;border-radius:999px;padding:4px 10px;display:inline-block;">
+                        KOT
+                    </a>
+
+
+                    <!-- Status buttons:
+                         - all green normally
+                         - only current status = red
+                    -->
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=in_progress"
+                       class="btn-chip small"
+                       style="<?= $isInProgress ? $redStyle : $greenStyle; ?>">
+                        In Progress
+                    </a>
+
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=ready"
+                       class="btn-chip small"
+                       style="<?= $isReady ? $redStyle : $greenStyle; ?>">
+                        Ready
+                    </a>
+
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=served"
+                       class="btn-chip small"
+                       style="<?= $isServed ? $redStyle : $greenStyle; ?>">
+                        Served
+                    </a>
+
+                    <a href="orders.php?id=<?= (int)$o['id'] ?>&status=paid"
+                       class="btn-chip small"
+                       style="<?= $isPaid ? $redStyle : $greenStyle; ?>">
+                        Paid
+                    </a>
                 </td>
             </tr>
         <?php endforeach; ?>
@@ -97,4 +152,4 @@ include __DIR__ . '/../ layouts/header.php';
     </tbody>
 </table>
 
-<?php include __DIR__ . '/../ layouts/footer.php'; ?>
+<?php include __DIR__ . '/../layouts/footer.php'; ?>

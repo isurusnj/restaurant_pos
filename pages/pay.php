@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/../auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../tools/accounting_auto.php';
+
+
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: orders.php'); exit;
+    header('Location: orders.php');
+    exit;
 }
 
 $orderId    = (int)($_POST['order_id'] ?? 0);
@@ -11,22 +15,26 @@ $method     = trim($_POST['method'] ?? 'cash');
 $amount     = (float)($_POST['amount'] ?? 0);
 $cashGiven  = isset($_POST['cash_given']) && $_POST['cash_given'] !== '' ? (float)$_POST['cash_given'] : null;
 
-if ($orderId <= 0 || $amount <= 0 || !in_array($method, ['cash','card','wallet','bank'], true)) {
-    header('Location: order_view.php?id=' . $orderId); exit;
+if ($orderId <= 0 || $amount <= 0 || !in_array($method, ['cash', 'card', 'wallet', 'bank'], true)) {
+    header('Location: order_view.php?id=' . $orderId);
+    exit;
 }
 
 // fetch order total
 $stmt = $pdo->prepare("SELECT total_amount FROM orders WHERE id = ?");
 $stmt->execute([$orderId]);
 $order = $stmt->fetch(PDO::FETCH_ASSOC);
-if (!$order) { header('Location: orders.php'); exit; }
+if (!$order) {
+    header('Location: orders.php');
+    exit;
+}
 
 try {
     $pdo->beginTransaction();
 
     // insert payment
     $ins = $pdo->prepare("INSERT INTO payments (order_id, amount, method, notes) VALUES (?, ?, ?, ?)");
-    $note = $cashGiven !== null ? ('cash_given=' . number_format($cashGiven,2)) : null;
+    $note = $cashGiven !== null ? ('cash_given=' . number_format($cashGiven, 2)) : null;
     $ins->execute([$orderId, $amount, $method, $note]);
 
     // compute total paid so far
@@ -47,6 +55,14 @@ try {
 } catch (Exception $e) {
     $pdo->rollBack();
     // In production you might log the error
+}
+
+// ---- AUTO ACCOUNTING ----
+// If this fails, we still don't block the payment.
+try {
+    record_pos_payment_journal($pdo, $orderId, $amount, $method);
+} catch (Throwable $e) {
+    // Optional: log error somewhere; we silently ignore for now.
 }
 
 header('Location: order_view.php?id=' . $orderId);

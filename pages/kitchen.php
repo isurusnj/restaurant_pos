@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../auth_check.php';
 $page_title = 'Kitchen';
 require_once __DIR__ . '/../config/db.php';
-include __DIR__ . '/../ layouts/header.php';
+include __DIR__ . '/../layouts/header.php';
 ?>
 
 <div class="kds-header">
@@ -95,4 +95,4 @@ include __DIR__ . '/../ layouts/header.php';
     poll();
 </script>
 
-<?php include __DIR__ . '/../ layouts/footer.php'; ?>
+<?php include __DIR__ . '/../layouts/footer.php'; ?>

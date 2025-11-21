@@ -13,12 +13,12 @@ $totalRevenue = $pdo->query("SELECT IFNULL(SUM(amount),0) FROM payments")->fetch
 $totalOrders  = $pdo->query("SELECT COUNT(*) FROM orders")->fetchColumn();
 $totalCustomers = $pdo->query("SELECT COUNT(*) FROM customers")->fetchColumn();
 
-include '../ layouts/header.php';
+include '../layouts/header.php';
 ?>
 <div class="dashboard-grid">
     <div class="card stat-card">
         <h3>Total Revenue</h3>
-        <p class="stat-money">$<?= number_format($totalRevenue,2) ?></p>
+        <p class="stat-money">$<?= number_format($totalRevenue, 2) ?></p>
         <span class="stat-sub">From all time</span>
     </div>
     <div class="card stat-card">
@@ -45,4 +45,4 @@ include '../ layouts/header.php';
         </div>
     </div>
 </div>
-<?php include '../ layouts/footer.php'; ?>
+<?php include '../layouts/footer.php'; ?>

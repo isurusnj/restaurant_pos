@@ -38,13 +38,13 @@ if ($q !== '') {
     $stmt = $pdo->prepare("SELECT * FROM customers
                          WHERE name LIKE ? OR phone LIKE ? OR email LIKE ?
                          ORDER BY id DESC LIMIT 200");
-    $stmt->execute([$like,$like,$like]);
+    $stmt->execute([$like, $like, $like]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } else {
     $rows = $pdo->query("SELECT * FROM customers ORDER BY id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC);
 }
 
-include __DIR__ . '/../ layouts/header.php';
+include __DIR__ . '/../layouts/header.php';
 ?>
 
 <?php if ($success): ?>
@@ -79,27 +79,36 @@ include __DIR__ . '/../ layouts/header.php';
 
 <table class="orders-table">
     <thead>
-    <tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Loyalty</th><th>Action</th></tr>
+        <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Loyalty</th>
+            <th>Action</th>
+        </tr>
     </thead>
     <tbody>
-    <?php if (!$rows): ?>
-        <tr><td colspan="6" style="text-align:center;">No customers.</td></tr>
-    <?php else: ?>
-        <?php foreach ($rows as $c): ?>
+        <?php if (!$rows): ?>
             <tr>
-                <td><?= $c['id'] ?></td>
-                <td><?= htmlspecialchars($c['name'] ?? '') ?></td>
-                <td><?= htmlspecialchars($c['phone'] ?? '') ?></td>
-                <td><?= htmlspecialchars($c['email'] ?? '') ?></td>
-                <td><?= (int)$c['loyalty_points'] ?></td>
-                <td>
-                    <a class="btn-chip small" href="customers.php?delete=<?= $c['id'] ?>"
-                       onclick="return confirm('Delete this customer?')">Delete</a>
-                </td>
+                <td colspan="6" style="text-align:center;">No customers.</td>
             </tr>
-        <?php endforeach; ?>
-    <?php endif; ?>
+        <?php else: ?>
+            <?php foreach ($rows as $c): ?>
+                <tr>
+                    <td><?= $c['id'] ?></td>
+                    <td><?= htmlspecialchars($c['name'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($c['phone'] ?? '') ?></td>
+                    <td><?= htmlspecialchars($c['email'] ?? '') ?></td>
+                    <td><?= (int)$c['loyalty_points'] ?></td>
+                    <td>
+                        <a class="btn-chip small" href="customers.php?delete=<?= $c['id'] ?>"
+                            onclick="return confirm('Delete this customer?')">Delete</a>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+        <?php endif; ?>
     </tbody>
 </table>
 
-<?php include __DIR__ . '/../ layouts/footer.php'; ?>
+<?php include __DIR__ . '/../layouts/footer.php'; ?>

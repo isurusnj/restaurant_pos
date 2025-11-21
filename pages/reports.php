@@ -1,5 +1,8 @@
 <?php
 require_once __DIR__ . '/../auth_check.php';
+require_once __DIR__ . '/../roles.php';          // <-- add this
+authorize(['admin']);                            // protect page
+
 $page_title = 'Sales Reports';
 require_once __DIR__ . '/../config/db.php';
 
@@ -25,7 +28,7 @@ $kpiStmt = $pdo->prepare("
     WHERE $where AND o.status <> 'cancelled'
 ");
 $kpiStmt->execute([$start, $end]);
-$kpis = $kpiStmt->fetch(PDO::FETCH_ASSOC);
+$kpis = $kpiStmt->fetch(PDO::FETCH_ASSOC) ?: ['total_revenue' => 0, 'total_orders' => 0, 'unique_customers' => 0];
 
 // ---- Payment breakdown ----
 $payStmt = $pdo->prepare("
@@ -53,7 +56,7 @@ $topStmt = $pdo->prepare("
 $topStmt->execute([$start, $end]);
 $topItems = $topStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// ---- Daily totals (for simple trend table; you can plug this into Chart.js later) ----
+// ---- Daily totals ----
 $trendStmt = $pdo->prepare("
     SELECT DATE(o.created_at) AS day, IFNULL(SUM(o.total_amount),0) AS revenue, COUNT(*) AS orders
     FROM orders o
@@ -67,20 +70,20 @@ $trend = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
 // ---- CSV export ----
 if (isset($_GET['export']) && $_GET['export'] === '1') {
     header('Content-Type: text/csv');
-    header('Content-Disposition: attachment; filename="sales_report_'.$start.'_to_'.$end.'.csv"');
+    header('Content-Disposition: attachment; filename="sales_report_' . $start . '_to_' . $end . '.csv"');
     $out = fopen('php://output', 'w');
 
     // KPIs
     fputcsv($out, ['Sales Report', "$start to $end"]);
     fputcsv($out, []);
     fputcsv($out, ['Total Revenue', 'Total Orders', 'Unique Customers']);
-    fputcsv($out, [number_format($kpis['total_revenue'],2), $kpis['total_orders'], $kpis['unique_customers']]);
+    fputcsv($out, [number_format($kpis['total_revenue'], 2), $kpis['total_orders'], $kpis['unique_customers']]);
     fputcsv($out, []);
 
     // Payment breakdown
     fputcsv($out, ['Payment Method', 'Amount', 'Count']);
     foreach ($payRows as $r) {
-        fputcsv($out, [ucfirst($r['method']), number_format($r['amount'],2), $r['cnt']]);
+        fputcsv($out, [ucfirst($r['method']), number_format($r['amount'], 2), $r['cnt']]);
     }
     fputcsv($out, []);
 
@@ -88,7 +91,7 @@ if (isset($_GET['export']) && $_GET['export'] === '1') {
     fputcsv($out, ['Top Items']);
     fputcsv($out, ['Item', 'Qty Sold', 'Revenue']);
     foreach ($topItems as $ti) {
-        fputcsv($out, [$ti['name'], $ti['qty_sold'], number_format($ti['revenue'],2)]);
+        fputcsv($out, [$ti['name'], $ti['qty_sold'], number_format($ti['revenue'], 2)]);
     }
     fputcsv($out, []);
 
@@ -96,13 +99,13 @@ if (isset($_GET['export']) && $_GET['export'] === '1') {
     fputcsv($out, ['Daily Trend']);
     fputcsv($out, ['Date', 'Revenue', 'Orders']);
     foreach ($trend as $d) {
-        fputcsv($out, [$d['day'], number_format($d['revenue'],2), $d['orders']]);
+        fputcsv($out, [$d['day'], number_format($d['revenue'], 2), $d['orders']]);
     }
     fclose($out);
     exit;
 }
 
-include __DIR__ . '/../ layouts/header.php';
+include __DIR__ . '/../layouts/header.php';  // <-- fixed path (no space)
 ?>
 
 <div class="reports-header">
@@ -120,7 +123,7 @@ include __DIR__ . '/../ layouts/header.php';
 <div class="dashboard-grid">
     <div class="card stat-card">
         <h3>Total Revenue</h3>
-        <p class="stat-money">$<?= number_format($kpis['total_revenue'],2) ?></p>
+        <p class="stat-money">$<?= number_format($kpis['total_revenue'], 2) ?></p>
         <span class="stat-sub"><?= htmlspecialchars($start) ?> → <?= htmlspecialchars($end) ?></span>
     </div>
     <div class="card stat-card">
@@ -138,20 +141,26 @@ include __DIR__ . '/../ layouts/header.php';
         <h3>Daily Trend</h3>
         <table class="orders-table" style="margin-top:8px;">
             <thead>
-            <tr><th>Date</th><th>Revenue</th><th>Orders</th></tr>
+                <tr>
+                    <th>Date</th>
+                    <th>Revenue</th>
+                    <th>Orders</th>
+                </tr>
             </thead>
             <tbody>
-            <?php if (!$trend): ?>
-                <tr><td colspan="3" style="text-align:center;">No data.</td></tr>
-            <?php else: ?>
-                <?php foreach ($trend as $d): ?>
+                <?php if (!$trend): ?>
                     <tr>
-                        <td><?= htmlspecialchars($d['day']) ?></td>
-                        <td>$<?= number_format($d['revenue'],2) ?></td>
-                        <td><?= (int)$d['orders'] ?></td>
+                        <td colspan="3" style="text-align:center;">No data.</td>
                     </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
+                <?php else: ?>
+                    <?php foreach ($trend as $d): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($d['day']) ?></td>
+                            <td>$<?= number_format($d['revenue'], 2) ?></td>
+                            <td><?= (int)$d['orders'] ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>
@@ -160,20 +169,26 @@ include __DIR__ . '/../ layouts/header.php';
         <h3>Payment Breakdown</h3>
         <table class="orders-table" style="margin-top:8px;">
             <thead>
-            <tr><th>Method</th><th>Amount</th><th>Count</th></tr>
+                <tr>
+                    <th>Method</th>
+                    <th>Amount</th>
+                    <th>Count</th>
+                </tr>
             </thead>
             <tbody>
-            <?php if (!$payRows): ?>
-                <tr><td colspan="3" style="text-align:center;">No payments.</td></tr>
-            <?php else: ?>
-                <?php foreach ($payRows as $r): ?>
+                <?php if (!$payRows): ?>
                     <tr>
-                        <td><?= ucfirst($r['method']) ?></td>
-                        <td>$<?= number_format($r['amount'],2) ?></td>
-                        <td><?= (int)$r['cnt'] ?></td>
+                        <td colspan="3" style="text-align:center;">No payments.</td>
                     </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
+                <?php else: ?>
+                    <?php foreach ($payRows as $r): ?>
+                        <tr>
+                            <td><?= ucfirst($r['method']) ?></td>
+                            <td>$<?= number_format($r['amount'], 2) ?></td>
+                            <td><?= (int)$r['cnt'] ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>
@@ -182,23 +197,29 @@ include __DIR__ . '/../ layouts/header.php';
         <h3>Top Products</h3>
         <table class="orders-table" style="margin-top:8px;">
             <thead>
-            <tr><th>Item</th><th>Qty Sold</th><th>Revenue</th></tr>
+                <tr>
+                    <th>Item</th>
+                    <th>Qty Sold</th>
+                    <th>Revenue</th>
+                </tr>
             </thead>
             <tbody>
-            <?php if (!$topItems): ?>
-                <tr><td colspan="3" style="text-align:center;">No items sold.</td></tr>
-            <?php else: ?>
-                <?php foreach ($topItems as $ti): ?>
+                <?php if (!$topItems): ?>
                     <tr>
-                        <td><?= htmlspecialchars($ti['name']) ?></td>
-                        <td><?= (int)$ti['qty_sold'] ?></td>
-                        <td>$<?= number_format($ti['revenue'],2) ?></td>
+                        <td colspan="3" style="text-align:center;">No items sold.</td>
                     </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
+                <?php else: ?>
+                    <?php foreach ($topItems as $ti): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($ti['name']) ?></td>
+                            <td><?= (int)$ti['qty_sold'] ?></td>
+                            <td>$<?= number_format($ti['revenue'], 2) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </tbody>
         </table>
     </div>
 </div>
 
-<?php include __DIR__ . '/../ layouts/footer.php'; ?>
+<?php include __DIR__ . '/../layouts/footer.php'; ?>

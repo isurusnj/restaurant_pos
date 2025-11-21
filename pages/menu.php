@@ -20,21 +20,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'categor
     }
 }
 
-// --- Delete Category (SAFE: prevent delete if items exist) ---
+/**
+ * Helper: delete all dependent data for a set of menu item IDs
+ * - order_items (FK: menu_item_id -> menu_items.id)
+ * - purchase_items (FK: menu_item_id -> menu_items.id)
+ * - menu_items themselves
+ */
+function hard_delete_menu_items(PDO $pdo, array $itemIds): void
+{
+    if (!$itemIds) {
+        return;
+    }
+
+    // Build "IN (?, ?, ?)" placeholder string
+    $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+
+    // 1) Delete order_items referencing these items
+    $st = $pdo->prepare("DELETE FROM order_items WHERE menu_item_id IN ($placeholders)");
+    $st->execute($itemIds);
+
+    // 2) Delete purchase_items referencing these items (if you have purchases)
+    try {
+        $st2 = $pdo->prepare("DELETE FROM purchase_items WHERE menu_item_id IN ($placeholders)");
+        $st2->execute($itemIds);
+    } catch (Throwable $e) {
+        // If purchase_items table doesn't exist, ignore. You can log this if you want.
+    }
+
+    // 3) Finally delete the menu_items themselves
+    $st3 = $pdo->prepare("DELETE FROM menu_items WHERE id IN ($placeholders)");
+    $st3->execute($itemIds);
+}
+
+// --- Delete Category (HARD DELETE: also deletes its items & references) ---
 if (isset($_GET['delete_cat'])) {
     $catId = (int)$_GET['delete_cat'];
     if ($catId > 0) {
-        // Count items in this category
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM menu_items WHERE category_id = ?");
-        $stmt->execute([$catId]);
-        $count = (int)$stmt->fetchColumn();
+        try {
+            $pdo->beginTransaction();
 
-        if ($count > 0) {
-            $errors[] = "Cannot delete category: $count menu item(s) still linked to it. Move or delete those items first.";
-        } else {
+            // Find all menu item IDs in this category
+            $stmt = $pdo->prepare("SELECT id FROM menu_items WHERE category_id = ?");
+            $stmt->execute([$catId]);
+            $itemIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // Delete all related data for those items
+            if ($itemIds) {
+                hard_delete_menu_items($pdo, array_map('intval', $itemIds));
+            }
+
+            // Now delete the category
             $del = $pdo->prepare("DELETE FROM categories WHERE id = ?");
             $del->execute([$catId]);
-            $success = "Category deleted.";
+
+            $pdo->commit();
+            $success = "Category and all related menu items & records deleted.";
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errors[] = "Failed to delete category: " . $e->getMessage();
         }
     }
 }
@@ -56,28 +101,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['form'] ?? '') === 'item') 
     if ($name === '' || $category_id <= 0 || $price <= 0) {
         $errors[] = 'Item name, category and price are required.';
     } else {
-        // Single INSERT — remove the duplicate you had before
         $stmt = $pdo->prepare("
           INSERT INTO menu_items (category_id, name, sku, description, price, image, stock_qty, low_stock_threshold, is_active)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
-            $category_id, $name,
+            $category_id,
+            $name,
             ($sku !== '' ? $sku : null),
-            $desc, $price, ($image !== '' ? $image : null),
-            $stock, $low, $active
+            $desc,
+            $price,
+            ($image !== '' ? $image : null),
+            $stock,
+            $low,
+            $active
         ]);
         $success = 'Menu item added.';
     }
 }
 
-// --- Delete Menu Item ---
+// --- Delete Menu Item (HARD DELETE + dependencies) ---
 if (isset($_GET['delete_item'])) {
     $id = (int)$_GET['delete_item'];
     if ($id > 0) {
-        $stmt = $pdo->prepare("DELETE FROM menu_items WHERE id = ?");
-        $stmt->execute([$id]);
-        $success = "Menu item deleted.";
+        try {
+            $pdo->beginTransaction();
+            hard_delete_menu_items($pdo, [$id]);
+            $pdo->commit();
+            $success = "Menu item and related records deleted.";
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            $errors[] = 'Failed to delete item: ' . $e->getMessage();
+        }
     }
 }
 
@@ -97,7 +154,7 @@ $items = $pdo->query("
     ORDER BY c.sort_order IS NULL, c.sort_order, c.name, m.name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
-include __DIR__ . '/../ layouts/header.php';
+include __DIR__ . '/../layouts/header.php';
 ?>
 
 <?php if ($success): ?>
@@ -108,7 +165,9 @@ include __DIR__ . '/../ layouts/header.php';
 
 <?php if ($errors): ?>
     <div style="margin-bottom:10px; padding:6px 10px; border-radius:8px; background:#ffe0e0; font-size:13px;">
-        <?php foreach ($errors as $e): ?><div><?= htmlspecialchars($e) ?></div><?php endforeach; ?>
+        <?php foreach ($errors as $e): ?>
+            <div><?= htmlspecialchars($e) ?></div>
+        <?php endforeach; ?>
     </div>
 <?php endif; ?>
 
@@ -142,7 +201,9 @@ include __DIR__ . '/../ layouts/header.php';
             </thead>
             <tbody>
             <?php if (!$categories): ?>
-                <tr><td colspan="5" style="text-align:center;">No categories.</td></tr>
+                <tr>
+                    <td colspan="5" style="text-align:center;">No categories.</td>
+                </tr>
             <?php else: ?>
                 <?php foreach ($categories as $c): ?>
                     <tr>
@@ -152,7 +213,7 @@ include __DIR__ . '/../ layouts/header.php';
                         <td><?= (int)$c['item_count'] ?></td>
                         <td>
                             <a href="menu.php?delete_cat=<?= (int)$c['id'] ?>"
-                               onclick="return confirm('Delete this category?');"
+                               onclick="return confirm('Delete this category and ALL related menu items and records?');"
                                class="btn-chip small">Delete</a>
                         </td>
                     </tr>
@@ -162,9 +223,9 @@ include __DIR__ . '/../ layouts/header.php';
         </table>
     </div>
 
-    <!-- MENU ITEMS SIDE -->
+    <!-- MENU ITEMS SIDE: ONLY THE FORM IN THE RIGHT BLOCK -->
     <div class="card">
-        <h3 style="margin-bottom:8px;">Menu Items</h3>
+        <h3 style="margin-bottom:8px;">Add Menu Item</h3>
 
         <form method="post" style="margin-bottom:10px;">
             <input type="hidden" name="form" value="item">
@@ -185,7 +246,7 @@ include __DIR__ . '/../ layouts/header.php';
             </div>
 
             <div class="login-field">
-                <label>Price</label>
+                <label>Price (LKR)</label>
                 <input type="number" step="0.01" name="price" required>
             </div>
 
@@ -206,7 +267,8 @@ include __DIR__ . '/../ layouts/header.php';
 
             <div class="login-field">
                 <label>Description</label>
-                <textarea name="description" rows="2" style="resize:vertical; padding:6px 8px; border-radius:8px; border:1px solid #ddd;"></textarea>
+                <textarea name="description" rows="2"
+                          style="resize:vertical; padding:6px 8px; border-radius:8px; border:1px solid #ddd;"></textarea>
             </div>
 
             <div class="login-field">
@@ -221,46 +283,53 @@ include __DIR__ . '/../ layouts/header.php';
 
             <button type="submit" class="btn-primary full-width">Add Item</button>
         </form>
-
-        <table class="orders-table">
-            <thead>
-            <tr>
-                <th>ID</th>
-                <th>Item</th>
-                <th>Category</th>
-                <th>SKU</th>
-                <th>Stock</th>
-                <th>Low</th>
-                <th>Price</th>
-                <th>Active</th>
-                <th>Action</th>
-            </tr>
-            </thead>
-            <tbody>
-            <?php if (!$items): ?>
-                <tr><td colspan="9" style="text-align:center;">No items.</td></tr>
-            <?php else: ?>
-                <?php foreach ($items as $m): ?>
-                    <tr>
-                        <td><?= (int)$m['id'] ?></td>
-                        <td><?= htmlspecialchars($m['name']) ?></td>
-                        <td><?= $m['category_name'] ? htmlspecialchars($m['category_name']) : '-' ?></td>
-                        <td><?= htmlspecialchars($m['sku'] ?? '') ?></td>
-                        <td><?= is_null($m['stock_qty']) ? '-' : (int)$m['stock_qty'] ?></td>
-                        <td><?= (int)($m['low_stock_threshold'] ?? 0) ?></td>
-                        <td>$<?= number_format((float)$m['price'], 2) ?></td>
-                        <td><?= $m['is_active'] ? 'Yes' : 'No' ?></td>
-                        <td>
-                            <a href="menu.php?delete_item=<?= (int)$m['id'] ?>"
-                               onclick="return confirm('Delete this item?');"
-                               class="btn-chip small">Delete</a>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-        </table>
     </div>
 </div>
 
-<?php include __DIR__ . '/../ layouts/footer.php'; ?>
+<!-- FULL-WIDTH ITEMS LIST (OUTSIDE THE BLOCK / GRID) -->
+<div class="card" style="margin-top:16px;">
+    <h3 style="margin-bottom:8px;">All Menu Items</h3>
+
+    <table class="orders-table">
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Item</th>
+            <th>Category</th>
+            <th>SKU</th>
+            <th>Stock</th>
+            <th>Low</th>
+            <th>Price (LKR)</th>
+            <th>Active</th>
+            <th>Action</th>
+        </tr>
+        </thead>
+        <tbody>
+        <?php if (!$items): ?>
+            <tr>
+                <td colspan="9" style="text-align:center;">No items.</td>
+            </tr>
+        <?php else: ?>
+            <?php foreach ($items as $m): ?>
+                <tr>
+                    <td><?= (int)$m['id'] ?></td>
+                    <td><?= htmlspecialchars($m['name']) ?></td>
+                    <td><?= $m['category_name'] ? htmlspecialchars($m['category_name']) : '-' ?></td>
+                    <td><?= htmlspecialchars($m['sku'] ?? '') ?></td>
+                    <td><?= is_null($m['stock_qty']) ? '-' : (int)$m['stock_qty'] ?></td>
+                    <td><?= (int)($m['low_stock_threshold'] ?? 0) ?></td>
+                    <td><?= number_format((float)$m['price'], 2) ?></td>
+                    <td><?= $m['is_active'] ? 'Yes' : 'No' ?></td>
+                    <td>
+                        <a href="menu.php?delete_item=<?= (int)$m['id'] ?>"
+                           onclick="return confirm('Delete this menu item and related records (orders/purchases)?');"
+                           class="btn-chip small">Delete</a>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+        <?php endif; ?>
+        </tbody>
+    </table>
+</div>
+
+<?php include __DIR__ . '/../layouts/footer.php'; ?>
